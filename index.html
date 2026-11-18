@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentTip — Tip any Agent ID holder by name</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b0e14; color: #e6e8ee; min-height: 100vh; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 32px; margin: 0 0 4px; }
+  h1 span { color: #f0b90b; }
+  .sub { color: #9aa3b2; margin: 0 0 24px; line-height: 1.5; }
+  .card { background: #151a23; border: 1px solid #232a38; border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: #9aa3b2; margin: 14px 0 6px; }
+  label:first-child { margin-top: 0; }
+  input { width: 100%; padding: 12px 14px; font-size: 16px; border-radius: 10px; border: 1px solid #2a3345; background: #0f131b; color: #e6e8ee; outline: none; }
+  input:focus { border-color: #f0b90b; }
+  .row { display: flex; gap: 10px; }
+  .row input { flex: 1; }
+  button { width: 100%; padding: 14px; font-size: 16px; font-weight: 600; border: none; border-radius: 10px; background: #f0b90b; color: #111; cursor: pointer; margin-top: 18px; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary { background: #232a38; color: #e6e8ee; }
+  .status { font-size: 14px; line-height: 1.6; margin-top: 12px; min-height: 20px; }
+  .status.ok { color: #3fcf8e; }
+  .status.err { color: #ff6b6b; }
+  .status.info { color: #9aa3b2; }
+  .stats { display: flex; gap: 12px; }
+  .stat { flex: 1; background: #151a23; border: 1px solid #232a38; border-radius: 14px; padding: 16px; text-align: center; }
+  .stat b { display: block; font-size: 24px; }
+  .stat span { font-size: 12px; color: #9aa3b2; }
+  .tips { list-style: none; margin: 0; padding: 0; }
+  .tips li { padding: 10px 0; border-bottom: 1px solid #232a38; font-size: 14px; line-height: 1.5; }
+  .tips li:last-child { border-bottom: none; }
+  .tips .msg { color: #9aa3b2; }
+  .tips a { color: #f0b90b; text-decoration: none; }
+  .addr { font-family: monospace; font-size: 12px; color: #9aa3b2; word-break: break-all; }
+  .foot { color: #5c6675; font-size: 12px; text-align: center; margin-top: 32px; line-height: 1.6; }
+  .foot a { color: #9aa3b2; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Agent<span>Tip</span></h1>
+  <p class="sub">Tip any Agent ID holder by their <b>.ai</b> name. No wallet address needed.
+  Both sides must hold an Agent ID. 0 fees — 100% of every tip reaches the recipient.</p>
+
+  <div class="card">
+    <button id="connectBtn" class="secondary" style="margin-top:0">Connect wallet</button>
+    <div id="walletInfo" class="status info"></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="statTips">–</b><span>total tips</span></div>
+    <div class="stat"><b id="statVol">–</b><span>total volume (BNB)</span></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <label>Recipient Agent ID name</label>
+    <div class="row">
+      <input id="handle" placeholder="tesla666" autocomplete="off" spellcheck="false">
+      <span style="align-self:center;color:#9aa3b2">.ai</span>
+    </div>
+    <label>Amount (BNB)</label>
+    <input id="amount" type="number" min="0" step="0.001" placeholder="0.01">
+    <label>Message (optional)</label>
+    <input id="message" placeholder="Thanks for the great work!" maxlength="140">
+    <div id="resolveInfo" class="status info"></div>
+    <button id="tipBtn" disabled>Send tip</button>
+    <div id="tipStatus" class="status"></div>
+  </div>
+
+  <div class="card">
+    <b>Recent tips</b>
+    <ul class="tips" id="tipList"><li class="msg">Loading…</li></ul>
+  </div>
+
+  <p class="foot">
+    Contract: <span class="addr" id="contractAddr">–</span><br>
+    Agent ID: SPACE ID Agent ID on BNB Chain ·
+    <a href="https://github.com/labixiaoge/agent-tip" target="_blank" rel="noopener">Open source (MIT)</a> ·
+    Built for the Agent ID Hackathon (Binance Wallet × BNB Chain)
+  </p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+// ---- config (contract address set after deployment) ----
+const AGENT_TIP_ADDRESS = "0x6350375929E627176D905c1dD54e794E66DEbB8F";
+const AGENT_ID_ADDRESS = "0x60b9262456de011f7d15a54cdd8c48baaa8b022f";
+const BSC_CHAIN_ID = 56;
+const RPC_URL = "https://bsc-dataseed.binance.org/";
+
+const TIP_ABI = [
+  "function tip(string recipientHandle, string message) payable",
+  "function tipByAddress(address recipient, string message) payable",
+  "function resolveHandle(string handle) view returns (address)",
+  "function getHandle(address account) view returns (string)",
+  "function isAgentIDHolder(address account) view returns (bool)",
+  "function totalTips() view returns (uint256)",
+  "function totalVolume() view returns (uint256)",
+  "event Tipped(address indexed sender, address indexed recipient, string senderHandle, string recipientHandle, uint256 amount, string message, uint256 timestamp)"
+];
+const AGENT_ID_ABI = [
+  "function balanceOf(address account) view returns (uint256)",
+  "function handleOf(address account) view returns (string)"
+];
+
+const $ = id => document.getElementById(id);
+const readProvider = new ethers.JsonRpcProvider(RPC_URL);
+const tipRead = new ethers.Contract(AGENT_TIP_ADDRESS, TIP_ABI, readProvider);
+let signer = null, tipWrite = null, myAddress = null;
+
+function setStatus(el, msg, cls) { el.textContent = msg; el.className = "status " + (cls || ""); }
+function shortAddr(a) { return a ? a.slice(0, 6) + "…" + a.slice(-4) : ""; }
+function cleanHandle(h) { return h.trim().toLowerCase().replace(/\.ai$/, ""); }
+
+async function loadStats() {
+  try {
+    const [n, v] = await Promise.all([tipRead.totalTips(), tipRead.totalVolume()]);
+    $("statTips").textContent = n.toString();
+    $("statVol").textContent = ethers.formatEther(v);
+  } catch (e) { /* contract not deployed yet */ }
+}
+
+async function loadRecentTips() {
+  try {
+    const latest = await readProvider.getBlockNumber();
+    const from = Math.max(0, latest - 50000);
+    const events = await tipRead.queryFilter(tipRead.filters.Tipped, from, latest);
+    const list = $("tipList");
+    if (!events.length) { list.innerHTML = '<li class="msg">No tips yet — be the first.</li>'; return; }
+    list.innerHTML = events.slice(-10).reverse().map(ev => {
+      const a = ev.args;
+      const msg = a.message ? ` <span class="msg">“${escapeHtml(a.message)}”</span>` : "";
+      return `<li><b>${escapeHtml(a.senderHandle || shortAddr(a.sender))}</b> → <b>${escapeHtml(a.recipientHandle || shortAddr(a.recipient))}</b> · ${ethers.formatEther(a.amount)} BNB${msg}<br><a href="https://bscscan.com/tx/${ev.transactionHash}" target="_blank" rel="noopener">${shortAddr(ev.transactionHash)}</a></li>`;
+    }).join("");
+  } catch (e) {
+    $("tipList").innerHTML = '<li class="msg">Could not load recent tips.</li>';
+  }
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+async function resolveRecipient() {
+  const h = cleanHandle($("handle").value);
+  const btn = $("tipBtn");
+  btn.disabled = true;
+  if (!h) { setStatus($("resolveInfo"), "", "info"); return null; }
+  setStatus($("resolveInfo"), "Resolving…", "info");
+  try {
+    const addr = await tipRead.resolveHandle(h);
+    if (addr === ethers.ZeroAddress) { setStatus($("resolveInfo"), `“${h}.ai” is not registered.`, "err"); return null; }
+    const holds = await tipRead.isAgentIDHolder(addr);
+    if (!holds) { setStatus($("resolveInfo"), `“${h}.ai” → ${shortAddr(addr)} (no Agent ID)`, "err"); return null; }
+    setStatus($("resolveInfo"), `“${h}.ai” → ${addr}`, "ok");
+    btn.disabled = false;
+    return { handle: h, address: addr };
+  } catch (e) {
+    setStatus($("resolveInfo"), "Could not resolve — is the contract deployed?", "err");
+    return null;
+  }
+}
+
+$("handle").addEventListener("input", () => { resolveRecipient(); });
+$("connectBtn").addEventListener("click", async () => {
+  if (!window.ethereum) { setStatus($("walletInfo"), "No wallet found. Install Binance Wallet or MetaMask, then refresh.", "err"); return; }
+  try {
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const net = await provider.getNetwork();
+    if (Number(net.chainId) !== BSC_CHAIN_ID) {
+      await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: "0x38" }] });
+    }
+    signer = await provider.getSigner();
+    myAddress = await signer.getAddress();
+    tipWrite = new ethers.Contract(AGENT_TIP_ADDRESS, TIP_ABI, signer);
+    const idRead = new ethers.Contract(AGENT_ID_ADDRESS, AGENT_ID_ABI, readProvider);
+    const bal = await idRead.balanceOf(myAddress);
+    let handle = "";
+    if (bal > 0n) { try { handle = await idRead.handleOf(myAddress); } catch (e) {} }
+    $("connectBtn").textContent = "Connected";
+    $("connectBtn").disabled = true;
+    setStatus($("walletInfo"), bal > 0n
+      ? `Connected as ${handle ? handle + ".ai" : myAddress} — you hold an Agent ID.`
+      : `Connected as ${shortAddr(myAddress)} — you do NOT hold an Agent ID. Claim one free in the Binance App to send tips.`, bal > 0n ? "ok" : "err");
+  } catch (e) {
+    setStatus($("walletInfo"), "Connection failed: " + (e.reason || e.message || e), "err");
+  }
+});
+
+$("tipBtn").addEventListener("click", async () => {
+  if (!tipWrite) { setStatus($("tipStatus"), "Connect your wallet first.", "err"); return; }
+  const r = await resolveRecipient();
+  if (!r) return;
+  const amt = $("amount").value.trim();
+  if (!amt || Number(amt) <= 0) { setStatus($("tipStatus"), "Enter an amount greater than 0.", "err"); return; }
+  const msg = $("message").value.trim();
+  setStatus($("tipStatus"), "Waiting for wallet confirmation…", "info");
+  $("tipBtn").disabled = true;
+  try {
+    const tx = await tipWrite.tip(r.handle, msg, { value: ethers.parseEther(amt) });
+    setStatus($("tipStatus"), "Sent! Waiting for confirmation… " + tx.hash, "info");
+    await tx.wait();
+    setStatus($("tipStatus"), `Tip confirmed. ${amt} BNB → ${r.handle}.ai — tx ${tx.hash}`, "ok");
+    loadStats(); loadRecentTips();
+  } catch (e) {
+    setStatus($("tipStatus"), "Failed: " + (e.reason || e.message || e), "err");
+  } finally {
+    $("tipBtn").disabled = false;
+  }
+});
+
+$("contractAddr").textContent = AGENT_TIP_ADDRESS;
+loadStats();
+loadRecentTips();
+setInterval(() => { loadStats(); loadRecentTips(); }, 60000);
+</script>
+</body>
+</html>
