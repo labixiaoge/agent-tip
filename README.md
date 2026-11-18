@@ -23,7 +23,7 @@ so every tip is an interaction between two Agent ID holders.
 ## Contract
 
 - Network: BNB Smart Chain (chain id 56)
-- Address: _to be deployed_
+- Address: `0x6350375929E627176D905c1dD54e794E66DEbB8F` ([BscScan](https://bscscan.com/address/0x6350375929E627176D905c1dD54e794E66DEbB8F))
 - Source: [`AgentTip.sol`](AgentTip.sol) (Solidity 0.8.26, MIT)
 
 ## Functions
